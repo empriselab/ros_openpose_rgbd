@@ -8,6 +8,8 @@ import argparse
 import glob
 import time
 import math
+import tf
+import tf.transformations as tr
 
 from lib_draw_3d_joints import Human, set_default_params
 from lib_openpose_detector import OpenposeDetector
@@ -49,11 +51,11 @@ def parse_command_line_arguments():
 
     # -- "rostopic" as data source.
     parser.add_argument("-a", "--ros_topic_color",
-                        default="camera/color/image_raw")
+                        default="overhead/color/image_raw")
     parser.add_argument("-b", "--ros_topic_depth",
-                        default="camera/aligned_depth_to_color/image_raw")
+                        default="overhead/aligned_depth_to_color/image_raw")
     parser.add_argument("-c", "--ros_topic_camera_info",
-                        default="camera/color/camera_info")
+                        default="overhead/color/camera_info")
 
     # -- "disk" as data source.
     parser.add_argument("-d", "--base_folder",
@@ -180,16 +182,29 @@ def main(args):
     detector = OpenposeDetector(
         {"hand": args.detect_hand})
 
+    p = [0.70708003, 0.34563621, 2.35865171]
+    cam_pose_tf = np.array([[-0.05002631,  0.98019736, -0.19159987,  0.        ],
+                    [ 0.99872766,  0.05031745, -0.00334879,  0.        ],
+                    [ 0.00635834, -0.19152362, -0.98146741,  0.        ],
+                    [ 0.,          0.,          0.,          1.        ]])
+    cam_pose_tf[0:3, -1] = p
+
     # -- Settings.
     cam_pose, cam_pose_pub = set_default_params()
+    cam_pose = cam_pose_tf
+    # listener = tf.TransformListener()
     if args.is_using_realsense: # Change coordinate.
         R, p = get_Rp_from_T(cam_pose)
         R = roty(math.pi/2).dot(rotz(-math.pi/2)).dot(R)
+        # R = roty(math.pi/2).dot(rotz(-math.pi/2 + 0.07)).dot(R)
+        # R = rotx(math.pi/2).dot(roty(math.pi)).dot(R)
+        # R = roty(0.15).dot(R)
+        # p = [0.61, 0.4868, 2.3578798]
         cam_pose = form_T(R, p)
 
     # -- Loop: read, detect, draw.
     prev_humans = []
-    while not rospy.is_shutdown() and ith_image < total_images:
+    while not rospy.is_shutdown():
         t0 = time.time()
 
         # -- Read data
@@ -221,11 +236,15 @@ def main(args):
                 i+1, N_people, human._id))
             rospy.loginfo("    " + human.get_hands_str())
             humans.append(human)
+        # publish the right arm poses
+        if len(humans) > 0:
+            human = humans[0]
+            human.publish_right_arm_pose()
         prev_humans = humans
         print("Total time = {} seconds.".format(time.time()-t0))
 
         # -- Keep update camera pose for rviz visualization.
-        cam_pose_pub.publish()
+        # cam_pose_pub.publish()
 
         # -- Reset data.
         if args.data_source == "disk" and ith_image == total_images:

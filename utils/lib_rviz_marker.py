@@ -57,11 +57,12 @@ class RvizMarker(object):
     # -- Functions.
     @staticmethod
     def init(frame_id="base",
-             topic_name="visualization_marker"):
+             topic_name="visualization_marker_pose"):
 
         RvizMarker._MARKER_TEMPLATE = RvizMarker._create_template_marker()
         RvizMarker._MARKER_TEMPLATE.header.frame_id = frame_id
         RvizMarker._pub = rospy.Publisher(topic_name, Marker, queue_size=400)
+        RvizMarker._pts = rospy.Publisher("pts", Point, queue_size=3)
         rospy.loginfo("RvizMarker.init(): frame_id={}, topic_name={}".format(
             frame_id, topic_name))
 
@@ -150,7 +151,11 @@ class RvizMarker(object):
         marker.id = id
         marker.type = marker.SPHERE_LIST
         marker.header.stamp = rospy.Time.now()
-        marker.points = [Point(*xyz) for xyz in list_xyz]
+        # marker.points = [Point(*xyz) for xyz in list_xyz]
+        if len(list_xyz) > 7:
+            marker.points = [Point(*xyz) for xyz in list_xyz][6:8]
+        else:
+            return
         marker.scale.x = size
         marker.scale.y = size
         marker.scale.z = size
@@ -185,6 +190,7 @@ class RvizMarker(object):
     def _create_template_marker():
         marker = Marker()
         marker.header = Header()
+        marker.header.frame_id = "base_link"
         marker.action = marker.ADD
         marker.pose.position.x = 0.0
         marker.pose.position.y = 0.0

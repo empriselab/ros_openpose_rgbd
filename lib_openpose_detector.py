@@ -69,13 +69,15 @@ class OpenposeDetector(object):
         '''
         datum = op.Datum()
         datum.cvInputData = color_image
-        self._opWrapper.emplaceAndPop([datum])
+        self._opWrapper.emplaceAndPop(op.VectorDatum([datum]))
         self._datum = datum
         # print("Body keypoints: \n" + str(datum.poseKeypoints))
         # print("Hand keypoints: \n" + str(datum.handKeypoints))
         if is_return_joints:
             body_joints = datum.poseKeypoints
-            if len(body_joints.shape) == 0:  # Detect no people.
+            if body_joints is None:
+                body_joints = []
+            if len(body_joints) == 0:  # Detect no people.
                 body_joints = []
             number_of_people = len(body_joints)
             body_joints = np.array(body_joints)
@@ -123,6 +125,7 @@ class OpenposeDetector(object):
         params["net_resolution"] = "320x240"  # e.g.: "240x160"
         # params["net_resolution"] = "640x480"  # e.g.: "240x160"
         params["model_pose"] = "COCO"  # Please use "COCO".
+        params["number_people_max"] = 1
         return params
 
     def set_params(self,
@@ -160,7 +163,7 @@ class OpenposeDetector(object):
                         params[key] = next_item
 
         if keys_params:
-            for key, param in keys_params.iteritems():
+            for key, param in keys_params.items():
                 params[key] = param
 
         return params

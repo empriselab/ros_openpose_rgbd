@@ -14,9 +14,11 @@ import cv2
 import rospy
 import tf
 from tf.transformations import quaternion_from_matrix
+import math
 
 from abc import ABCMeta, abstractmethod  # Abstract class.
 from geometry_msgs.msg import Point, Quaternion, Pose
+from std_msgs.msg import Float64MultiArray
 
 if True:  # Add project root
     import sys
@@ -31,6 +33,14 @@ IS_DRAW_BY_STRANDS = False  # This is slow. Set to False.
 IS_DRAW_DOTS = True
 
 ''' ------------------------------- Classes ------------------------------- '''
+
+def quaternion_about_axis(angle, axis):
+    """Return quaternion for rotation about axis.
+    """
+    q = np.zeros((4, ))
+    q[3] = math.cos(angle / 2.0)
+    q[:3] = math.sin(angle / 2.0) * axis
+    return q
 
 
 class Link(object):
@@ -72,6 +82,7 @@ class AbstractPart(object):
                 curr_id += 1
             if IS_DRAW_DOTS:
                 for i, link in enumerate(self._links):
+                    # only draw the right arm dots
                     RvizMarker.draw_dots(curr_id, link)
                     self._marker_ids.append(curr_id)
                     curr_id += 1
@@ -82,6 +93,7 @@ class AbstractPart(object):
             self._marker_ids.append(curr_id)
             curr_id += 1
             if IS_DRAW_DOTS:
+                # only draw the right arm dots
                 RvizMarker.draw_dots(curr_id, self._links)
                 self._marker_ids.append(curr_id)
                 curr_id += 1
@@ -185,7 +197,7 @@ class Body(AbstractPart):
         if not ret:
             return False, []
         three_joints_xyz_camera = \
-            [self._joints_xyz_in_camera[i]
+            [self._joints_xyz_in_world[i]
              for i in Body.RIGHT_ARM_JOINTS]
         return True, np.array(three_joints_xyz_camera)
 
@@ -237,6 +249,9 @@ class Human(object):
             self._id = id
         self._has_displayed = False
         self.set_joints(rgbd, body_joints, hand_joints)
+        # arm pose is a numpy array with 3 xyz coordinates.
+        self.arm_pose_publisher = rospy.Publisher(
+            '/right_arm_pose', Pose, queue_size=1)
         pass
 
     def set_joints(self, rgbd, body_joints, hand_joints):
@@ -292,6 +307,30 @@ class Human(object):
         '''
         return self._body.get_right_arm()
 
+    def publish_right_arm_pose(self):
+        right_arm_available, right_arm_joints = self.get_right_arm()
+        if right_arm_available:
+            msg = Pose()
+            msg.position.x = np.mean(right_arm_joints[1:, 0])
+            msg.position.y = np.mean(right_arm_joints[1:, 1])
+            msg.position.z = np.mean(right_arm_joints[1:, 2])
+            # find orientation of the line from elbow to wrist (z axis)
+            elbow_to_wrist = right_arm_joints[2, :] - right_arm_joints[1, :]
+            elbow_to_wrist = elbow_to_wrist / np.linalg.norm(elbow_to_wrist)
+            orientation = np.array([0, 0, 1])
+            right_arm_joints[:, 2] = 0
+            angle = np.arccos(np.dot(orientation, elbow_to_wrist))
+            axis = np.cross(orientation, elbow_to_wrist)
+            axis = axis / np.linalg.norm(axis)
+            q = quaternion_about_axis(angle, axis)
+            # apply rotation to y axis (x axis of camera frame)
+
+            msg.orientation.x = q[0]
+            msg.orientation.y = q[1]
+            msg.orientation.z = q[2]
+            msg.orientation.w = q[3]
+            self.arm_pose_publisher.publish(msg)
+
 
 ''' -------------------------------------- Helper Functions -------------------------------------- '''
 
@@ -330,16 +369,16 @@ def set_default_params():
     ])
 
     # Camera pose publisher.
-    base_frame = "base"
-    camera_frame = "camera_link"
+    base_frame = "base_link"
+    camera_frame = "overhead_link"
     cam_pose_pub = CameraPosePublisher(
         frame_id_camera=camera_frame,
         frame_id_world=base_frame,
         T4x4_world_to_cam=cam_pose)
 
     # Rviz drawer.
-    RvizMarker.init(frame_id=base_frame, topic_name="visualization_marker")
-    RvizMarker.set_dot(size=0.03, color='r')
+    RvizMarker.init(frame_id=base_frame, topic_name="visualization_marker_pose")
+    RvizMarker.set_dot(size=0.05, color='r')
     RvizMarker.set_link(size=0.01, color='g')
 
     # Return.
